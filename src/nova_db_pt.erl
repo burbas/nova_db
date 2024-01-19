@@ -18,39 +18,74 @@ format_error({Error, _Line, _Column}) ->
 
 
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Private functions
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 transform(Forms0) ->
+    io:format("~p~n", [Forms0]),
     case is_model(Forms0) of
         true ->
-            {ok, BaseForms} = epp:parse_file("nova_db_base.erl", []),
-            fix_exports(Forms0, BaseForms);
+            SrcDir = code:lib_dir(nova_db, src),
+            BaseFile = filename:join(SrcDir, "nova_db_base.erl"),
+            {ok, BaseForms} = epp:parse_file(BaseFile, []),
+            ExportsForms0 = concat_exports(Forms0, []),
+            ExportsBaseForms = concat_exports(BaseForms, ExportsForms0),
+            BaseForms0 = exclude_functions(BaseForms, ExportsForms0),
+            {true, inject_mod(lists:droplast(BaseForms0), Forms0,
+                              ExportsBaseForms ++ ExportsForms0)};
         _ ->
             false
     end.
 
 
-
-fix_exports([], {Name, Exports, Ack}, _) ->
-    %% Let's assemble
-    [{attribute, 1, module, Name}|[{attribute, 2, export, Exports}|lists:reverse(Ack)]];
-fix_exports([{attribute, _LineNo, module, Name}|Tl], {ModName, Exports, Ack}, SecondRun) ->
-    case SecondRun of
-        false ->
-            %% We can skip this since it's the first occurence of module-attribute
-            fix_exports(Tl, {Name, Exports, Ack}, true);
+inject_mod(_BaseForms, [], _Exports) ->
+    [];
+inject_mod(BaseForms, [{attribute, Row, export, _}|Tl], Exports) ->
+    case Exports of
+        undefined ->
+            inject_mod(BaseForms, Tl, Exports);
         _ ->
-            fix_exports(Tl, {ModName, Exports, Ack}, SecondRun)
+            [{attribute, Row, export, Exports}|inject_mod(BaseForms, Tl, undefined)]
     end;
-fix_exports([{attribute, _LineNo, export, Exports}|Tl], {Name, _, Ack}, false) ->
-    %% We are at the right place - just extract the exports
-    fix_exports(Tl, {Name, Exports, Ack}, true);
-fix_exports([{attribute, _LineNo, export, Exports}|Tl], {Name, ExportsAck, Ack}, true) ->
-    fix_exports(Tl, {Name, Exports++ExportsAck, Ack}, true);
-fix_exports([Hd|Tl], {Name, Exports, Ack}, SecondRun) ->
-    fix_exports(Tl, {Name, Exports, [Hd|Ack]}, SecondRun).
+inject_mod(BaseForms, [{function, _Row, _Func, _Arity, _Clauses}|_Tl]=F, _Exports) ->
+    BaseForms ++ F;
+inject_mod(BaseForms, [Hd|Tl], Exports) ->
+    [Hd|inject_mod(BaseForms, Tl, Exports)].
 
+exclude_functions([], _) ->
+    [];
+exclude_functions([{attribute, _, _, _}|Tl], ExcludedFunctions) ->
+    exclude_functions(Tl, ExcludedFunctions);
+exclude_functions([{function, _, Func, Arity, _}=F|Tl], ExcludedFunctions) ->
+    case lists:member({Func, Arity}, ExcludedFunctions) of
+        true ->
+            exclude_functions(Tl, ExcludedFunctions);
+        false ->
+            [F|exclude_functions(Tl, ExcludedFunctions)]
+    end;
+exclude_functions([Hd|Tl], ExcludedFunctions) ->
+    [Hd|exclude_functions(Tl, ExcludedFunctions)].
+
+concat_exports([], _) ->
+    [];
+concat_exports([{attribute, _, export, List}|Tl], ExcludeList) ->
+    concat_exports_list(List, ExcludeList) ++ concat_exports(Tl, ExcludeList);
+concat_exports([_Hd|Tl], ExcludeList) ->
+    concat_exports(Tl, ExcludeList).
+
+concat_exports_list([], _) -> [];
+concat_exports_list([{Func, Arity}=T|Tl], ExcludeList) when is_atom(Func) andalso
+                                                            is_integer(Arity)  ->
+    case lists:member(T, ExcludeList) of
+        true ->
+            concat_exports_list(Tl, ExcludeList);
+        false ->
+            [T|concat_exports_list(Tl, ExcludeList)]
+    end.
 
 is_model([]) -> false;
-is_model([{'-', _}, {atom, _, repo}, {'(', _}|Tl]) ->
+is_model([{attribute, _, repo, _}|_Tl]) ->
     true;
-is_model([Hd|Tl]) ->
+is_model([_Hd|Tl]) ->
     is_model(Tl).
