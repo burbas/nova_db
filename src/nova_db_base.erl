@@ -5,7 +5,6 @@
          value/2
         ]).
 
-
 save(Record) ->
     case validate(Record) of
         ok ->
@@ -26,12 +25,7 @@ value(Record, Field) ->
 
 %% Private functions
 save_record(Record) ->
-    case mnesia:transaction(fun() -> mnesia:write(Record) end) of
-        {atomic, ok} ->
-            {ok, Record};
-        {aborted, Reason} ->
-            {error, Reason}
-    end.
+    nova_db:save(Record).
 
 
 get_index(Field, []) -> throw({error, {field_not_found, Field}});

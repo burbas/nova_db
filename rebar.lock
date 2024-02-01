@@ -1,0 +1,4 @@
+[{<<"pmod_transform">>,
+  {git,"https://github.com/erlang/pmod_transform.git",
+       {ref,"f96b8b572395581d58fe3dd7c3e61f3f0e8fa6dc"}},
+  0}].
