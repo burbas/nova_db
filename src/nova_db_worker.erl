@@ -3,7 +3,7 @@
 -behaviour(poolboy_worker).
 
 -export([
-         start_link/0
+         start_link/1
         ]).
 
 -export([
@@ -11,15 +11,9 @@
          handle_call/3,
          handle_cast/2,
          handle_info/2,
-         terminate/2,
-         code_change/3
+         terminate/2
         ]).
 
-
--export({
-         adapter :: atom(),
-         adapter_state :: any()
-        }).
 
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
@@ -28,18 +22,24 @@ start_link(Args) ->
 init(Args) ->
     logger:info("Starting NovaDB worker"),
     process_flag(trap_exit, true),
-    {ok, Adapter} = maps:get(adapter, Args),
-    case erlang:exported_function(Adapter, init, 1) of
+    Adapter = maps:get(adapter, Args),
+    case erlang:function_exported(Adapter, init, 1) of
         true ->
             AdapterState = Adapter:init(Args),
             {ok, #{adapter => Adapter, adapter_state => AdapterState}};
         _ ->
-            {ok, #{adapter => Adapter}}
+            logger:info("No adapter init found for function ~p, using default state", [Adapter]),
+            {ok, #{adapter => Adapter, adapter_state => undefined}}
     end.
 
 handle_call({Function, Args}, _From, State = #{adapter := Adapter, adapter_state := AdapterState}) ->
-    Reply = erlang:apply(Adapter, Function, [AdapterState|Args]),
-    {reply, Reply, State}.
+    case erlang:apply(Adapter, Function, [AdapterState|Args]) of
+        {noreply, AdapterState0} ->
+            %% We always need to respond :P
+            {reply, ok, State#{adapter_state => AdapterState0}};
+        {reply, Reply, AdapterState0} ->
+            {reply, Reply, State#{adapter_state => AdapterState0}}
+    end.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -47,9 +47,9 @@ handle_cast(_Msg, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(Reason, State = #{adapter := Adapter, adapter_state := AdapterState}) ->
+terminate(Reason, #{adapter := Adapter, adapter_state := AdapterState}) ->
     logger:info("Terminating NovaDB worker with reason ~p", [Reason]),
-    case erlang:exported_function(Adapter, terminate, 1) of
+    case erlang:function_exported(Adapter, terminate, 1) of
         true ->
             Adapter:terminate(AdapterState),
             ok;

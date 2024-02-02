@@ -1,35 +1,31 @@
 -module(nova_db_base).
 -export([
-         save/1,
-         validate/1,
-         value/2
+         db_mod/0,
+         save/0,
+         validate/0
         ]).
 
-save(Record) ->
-    case validate(Record) of
-        ok ->
-            save_record(Record);
-        {error, Reason} ->
-            {error, Reason}
+%% We need to flag this with the nova_db_pt_ignore parse transform since we are using THIS variable without
+%% it being defined in this module. THIS comes from the pmod_pt parse transform and will contain the
+%% parameterized module that is inheriting from this module.
+-compile({parse_transform, nova_db_pt_ignore}).
+
+db_mod() ->
+    Module = element(1, THIS),
+    Connections = application:get_env(nova_db, connections, []),
+    case proplists:lookup(connection, Module:module_info(attributes)) of
+        none ->
+            {DBMod, _Options} = hd(Connections),
+            %% Take the first repo in the configuration
+            DBMod;
+        {connection, Connection} ->
+            %% We trust the user to have given us a valid connection
+            Connection
     end.
 
-
-%% Only used to be overridden
-validate(_Record) -> true.
-
-value(Record, Field) ->
-    Attributes = ?MODULE:module_info(attributes),
-    {_, RecordInfo} = lists:keyfind(record_info, 1, Attributes),
-    Index = get_index(Field, RecordInfo),
-    element(Index, Record+1). %% +1 since we have removed the record-name
-
-%% Private functions
-save_record(Record) ->
-    nova_db:save(Record).
+save() ->
+    nova_db:save(THIS).
 
 
-get_index(Field, []) -> throw({error, {field_not_found, Field}});
-get_index(Field, [Field|_]) ->
-    1;
-get_index(Field, [_Hd|Tl]) ->
-    1+get_index(Field, Tl).
+validate() ->
+    ok.
