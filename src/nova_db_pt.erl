@@ -46,14 +46,24 @@ transform(Forms0) ->
 
 inject_mod(BaseForms, [], _Exports, _ExportAfterMod) ->
     BaseForms;
-inject_mod(BaseForms, [{attribute, Row, module, _}=A|Tl], Exports, true) ->
-    [A, {attribute, Row, export, Exports}|inject_mod(BaseForms, Tl, undefined, true)];
+inject_mod(BaseForms, [{attribute, Row, module, ModuleDef}=A|Tl], Exports, ExportAfterMod) ->
+    case ModuleDef of
+        {_Name, ListOfFields} ->
+            ListOfFields0 = [ erlang:list_to_atom(string:lowercase(erlang:atom_to_list(X))) || X <- ListOfFields ],
+            case ExportAfterMod of
+                true ->
+                    [A, {attribute, Row, export, Exports}, {attribute, Row, field_names, ListOfFields0}|inject_mod(BaseForms, Tl, undefined, true)];
+                false ->
+                    [A, {attribute, Row, field_names, ListOfFields0}|inject_mod(BaseForms, Tl, undefined, true)]
+            end;
+        Name ->
+            [A, {attribute, Row, export, Exports}|inject_mod(BaseForms, Tl, undefined, true)]
+        end;
 inject_mod(BaseForms, [{attribute, Row, export, _}|Tl], Exports, false) ->
     case Exports of
         undefined ->
             inject_mod(BaseForms, Tl, Exports, false);
         _ ->
-            io:format("~p~n", [Exports]),
             [{attribute, Row, export, Exports}|inject_mod(BaseForms, Tl, undefined, false)]
     end;
 inject_mod(BaseForms, [{function, _Row, _Func, _Arity, _Clauses}|_Tl]=F, _Exports, _ExportAfterMod) ->
