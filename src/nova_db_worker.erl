@@ -23,14 +23,8 @@ init(Args) ->
     logger:info("Starting NovaDB worker"),
     process_flag(trap_exit, true),
     Adapter = maps:get(adapter, Args),
-    case erlang:function_exported(Adapter, init, 1) of
-        true ->
-            AdapterState = Adapter:init(Args),
-            {ok, #{adapter => Adapter, adapter_state => AdapterState}};
-        _ ->
-            logger:info("No adapter init found for function ~p, using default state", [Adapter]),
-            {ok, #{adapter => Adapter, adapter_state => undefined}}
-    end.
+    AdapterState = Adapter:init(Args),
+    {ok, #{adapter => Adapter, adapter_state => AdapterState}}.
 
 handle_call({Function, Args}, _From, State = #{adapter := Adapter, adapter_state := AdapterState}) ->
     case erlang:apply(Adapter, Function, [AdapterState|Args]) of
